@@ -3,7 +3,12 @@ name: hautiepay.ca uptime
 on:
   schedule:
     - cron: '*/5 * * * *'   # GitHub runs these "about" every 5 minutes; delays of a few minutes happen
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      simulate_outage:
+        description: 'Pretend the site is down, to test the alert'
+        type: boolean
+        default: false
 
 permissions:
   issues: write
@@ -23,6 +28,11 @@ jobs:
       - name: Check (retry once before alerting)
         id: check
         run: |
+          if [ "${{ inputs.simulate_outage }}" = "true" ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            { echo 'problems<<EOF'; echo '- TEST ONLY: simulated outage to check that alerts arrive. Nothing is wrong.'; echo 'EOF'; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if out=$(bash check.sh); then echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           sleep 30
           if out=$(bash check.sh); then echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0; fi
