@@ -1,0 +1,69 @@
+name: hautiepay.ca uptime
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # GitHub runs these "about" every 5 minutes; delays of a few minutes happen
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  contents: write
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check (retry once before alerting)
+        id: check
+        run: |
+          if out=$(./check.sh); then echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          sleep 30
+          if out=$(./check.sh); then echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          { echo 'problems<<EOF'; echo "$out"; echo 'EOF'; } >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the outage issue
+        if: steps.check.outputs.ok == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBLEMS: ${{ steps.check.outputs.problems }}
+        run: |
+          open=$(gh issue list --label outage --state open --json number --jq '.[0].number')
+          when=$(TZ=America/Winnipeg date '+%Y-%m-%d %H:%M %Z')
+          if [ -z "$open" ]; then
+            gh label create outage --color B60205 --description "hautiepay.ca is failing its checks" 2>/dev/null || true
+            gh issue create --label outage --assignee "${{ github.repository_owner }}" \
+              --title "🔴 hautiepay.ca is DOWN ($when)" \
+              --body "$(printf 'The 5-minute check failed twice in a row at %s:\n\n%s\n\nThis issue closes by itself when the site passes again.' "$when" "$PROBLEMS")"
+          else
+            echo "Already open: #$open"
+          fi
+
+      - name: Close the outage issue when back up
+        if: steps.check.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          open=$(gh issue list --label outage --state open --json number --jq '.[0].number')
+          if [ -n "$open" ]; then
+            gh issue close "$open" --comment "🟢 hautiepay.ca passed its checks again at $(TZ=America/Winnipeg date '+%Y-%m-%d %H:%M %Z')."
+          fi
+
+      # GitHub switches off scheduled workflows in a repository with no
+      # commits for 60 days. One small commit a month keeps this one running.
+      - name: Monthly keep-alive
+        if: github.event_name == 'schedule'
+        run: |
+          month=$(date -u +%Y-%m)
+          if [ "$(cat heartbeat.txt 2>/dev/null)" != "$month" ]; then
+            echo "$month" > heartbeat.txt
+            git config user.name "uptime-bot"; git config user.email "uptime-bot@users.noreply.github.com"
+            git add heartbeat.txt && git commit -m "keep-alive $month" && git push
+          fi
