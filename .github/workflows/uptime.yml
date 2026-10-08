@@ -23,9 +23,9 @@ jobs:
       - name: Check (retry once before alerting)
         id: check
         run: |
-          if out=$(./check.sh); then echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if out=$(bash check.sh); then echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           sleep 30
-          if out=$(./check.sh); then echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if out=$(bash check.sh); then echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           echo "ok=false" >> "$GITHUB_OUTPUT"
           { echo 'problems<<EOF'; echo "$out"; echo 'EOF'; } >> "$GITHUB_OUTPUT"
 
